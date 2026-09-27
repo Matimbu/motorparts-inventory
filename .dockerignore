@@ -1,0 +1,7 @@
+.git
+data/*.db*
+node_modules
+*.md
+*.bat
+scripts
+docs

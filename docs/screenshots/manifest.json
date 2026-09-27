@@ -1,0 +1,94 @@
+[
+ {
+  "file": "01-login.png",
+  "title": "Login"
+ },
+ {
+  "file": "02-dashboard.png",
+  "title": "Dashboard"
+ },
+ {
+  "file": "03-inventory.png",
+  "title": "Inventory"
+ },
+ {
+  "file": "04-item-detail.png",
+  "title": "Item details and history"
+ },
+ {
+  "file": "05-pos.png",
+  "title": "Sell / POS with a cart"
+ },
+ {
+  "file": "06-receipt.png",
+  "title": "Receipt"
+ },
+ {
+  "file": "07-sales.png",
+  "title": "Sales history"
+ },
+ {
+  "file": "08-stock-log.png",
+  "title": "Stock log"
+ },
+ {
+  "file": "09-reports.png",
+  "title": "Reports"
+ },
+ {
+  "file": "10-settings.png",
+  "title": "Settings"
+ },
+ {
+  "file": "11-sheet-sync.png",
+  "title": "Google Sheet sync preview"
+ },
+ {
+  "file": "12-no-srp.png",
+  "title": "Items without a selling price"
+ },
+ {
+  "file": "13-set-password.png",
+  "title": "First login: choose your own password"
+ },
+ {
+  "file": "14-phone-login.png",
+  "title": "Login on a phone"
+ },
+ {
+  "file": "15-pos-fits-bike.png",
+  "title": "POS: parts that fit a chosen bike"
+ },
+ {
+  "file": "16-return-items.png",
+  "title": "Returning an item from a receipt"
+ },
+ {
+  "file": "17-daily-closing.png",
+  "title": "Daily closing and cash count"
+ },
+ {
+  "file": "18-reorder-list.png",
+  "title": "Reorder list for the supplier"
+ },
+ {
+  "file": "19-quick-pricing.png",
+  "title": "Pricing items that have no SRP"
+ },
+ {
+  "file": "20-phone-dashboard.png",
+  "title": "Dashboard on a phone"
+ },
+ {
+  "file": "21-phone-inventory.png",
+  "title": "Inventory on a phone"
+ },
+ {
+  "file": "22-phone-pos.png",
+  "title": "POS on a phone"
+ },
+ {
+  "file": "23-phone-receipt.png",
+  "title": "Receipt on a phone"
+ }
+]

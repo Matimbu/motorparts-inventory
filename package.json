@@ -1,0 +1,12 @@
+{
+  "name": "motorparts-inventory",
+  "version": "1.1.0",
+  "description": "Inventory, point-of-sale and sales tracking for motorparts shops. Zero dependencies: Node.js and SQLite.",
+  "main": "server.js",
+  "private": true,
+  "engines": { "node": ">=22.13" },
+  "scripts": {
+    "start": "node server.js",
+    "demo": "node server.js --demo"
+  }
+}
