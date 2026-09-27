@@ -3,7 +3,7 @@
 **Inventory, point of sale and sales tracking for small motorcycle parts shops.**
 Zero dependencies: Node.js and its built-in SQLite. One file holds all the data, and there's no `npm install`.
 
-**[▶ Live demo](https://motorparts-inventory-production.up.railway.app)**: log in as **admin / admin123**. It resets on every deploy.
+**[▶ Live demo](https://motorparts-inventory-demo.up.railway.app)**: log in as **admin / admin123**. It resets on every deploy.
 
 ![Dashboard](docs/screenshots/02-dashboard.png)
 
