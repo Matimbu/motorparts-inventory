@@ -28,7 +28,7 @@ const LT = `'+8 hours'`;
 const BEHIND_PROXY = !!(process.env.RAILWAY_ENVIRONMENT_NAME || process.env.RAILWAY_ENVIRONMENT) ||
   process.env.TRUST_PROXY === '1';
 
-if (BEHIND_PROXY && !process.env.DATA_DIR) {
+if (BEHIND_PROXY && !process.env.DATA_DIR && !USE_DEMO) {
   console.warn('WARNING: DATA_DIR is not set. The database is on temporary storage and will be LOST on the next deploy.');
   console.warn('         Attach a volume and set DATA_DIR to its mount path (e.g. /data).');
 }
@@ -302,6 +302,7 @@ function recordFailedLogin(ip) {
 }
 // Routes still reachable while a user must replace a temporary password.
 const PASSWORD_CHANGE_ROUTES = new Set(['/api/me', '/api/me/password', '/api/logout']);
+const DEMO_LOCKED = new Set(['POST /api/me/password', 'POST /api/users', 'POST /api/users/:id/password', 'DELETE /api/users/:id']);
 
 // ---------------------------------------------------------------- queries
 const ITEM_SELECT = `SELECT i.id, i.sku, i.name, i.category_id, c.name AS category, i.compat, i.stock, i.cost, i.srp,
@@ -357,7 +358,7 @@ function csvCell(v) { const s = String(v ?? ''); return /[",\n]/.test(s) ? `"${s
 // ---------------------------------------------------------------- routes
 const routes = [];
 const route = (method, pattern, handler, opts = {}) =>
-  routes.push({ method, re: new RegExp('^' + pattern.replace(/:(\w+)/g, '(?<$1>[^/]+)') + '$'), handler, ...opts });
+  routes.push({ method, pattern, re: new RegExp('^' + pattern.replace(/:(\w+)/g, '(?<$1>[^/]+)') + '$'), handler, ...opts });
 
 route('POST', '/api/login', ({ req, body, res }) => {
   const ip = clientIp(req);
@@ -1010,6 +1011,9 @@ const server = http.createServer(async (req, res) => {
     const params = r.re.exec(url.pathname).groups || {};
     const user = getUser(req);
     if (!r.public && !user) throw new HttpError(401, 'Please log in');
+    // A public demo shares one admin login: nobody may lock the others out.
+    if (USE_DEMO && DEMO_LOCKED.has(`${r.method} ${r.pattern}`))
+      throw new HttpError(403, 'Passwords and accounts are locked in the demo, so every visitor can log in.');
     if (user?.must_change && !r.public && !PASSWORD_CHANGE_ROUTES.has(url.pathname))
       throw new HttpError(403, 'Please set a new password first');
     if (req.method !== 'GET' && req.headers['content-type'] && !req.headers['content-type'].includes('application/json'))
