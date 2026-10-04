@@ -49,6 +49,14 @@ You need Node.js 22.13 or newer. The first start generates about 200 parts and t
 - **Roles.** Staff sell, receive stock and edit items. Only an admin deletes items, voids sales and manages accounts.
 - **Security.** Forced password change on first login, lockout after repeated wrong passwords, HTTPS-only cookies, and a strict Content Security Policy.
 
+## Designed to be scanned
+
+Nobody reads a POS screen; they hunt for one answer. So the interface does the reading:
+- **Quiet by default.** Normal stock shows nothing. Only low and empty items get a color, so they stand out from their neighbors.
+- **Grouped, not listed.** Inventory is sectioned by category, and Sales and the stock log by day, each with its own total.
+- **Chips and initials instead of words.** Payment methods are colored chips with an icon and the label, and cashiers are initials circles.
+- **A phone cart bar.** It follows you down the product list until the cart itself is on screen.
+
 ## What sets it apart
 
 - **Runs anywhere, costs almost nothing.** No database server and no dependencies. It runs on the shop's PC for free, or online for about $5 a month.
@@ -63,11 +71,12 @@ You need Node.js 22.13 or newer. The first start generates about 200 parts and t
 | ![POS](docs/screenshots/05-pos.png) POS with a cart | ![Fits my bike](docs/screenshots/15-pos-fits-bike.png) Parts that fit a chosen bike |
 | ![Daily closing](docs/screenshots/17-daily-closing.png) Daily closing and cash count | ![Returns](docs/screenshots/16-return-items.png) Returning an item from a receipt |
 | ![Sheet sync](docs/screenshots/11-sheet-sync.png) Google Sheet sync preview | ![Reorder list](docs/screenshots/18-reorder-list.png) Reorder list for the supplier |
-| ![Inventory](docs/screenshots/03-inventory.png) Inventory | ![Reports](docs/screenshots/09-reports.png) Reports |
+| ![Inventory](docs/screenshots/03-inventory.png) Inventory: grouped by category, quiet when stock is normal | ![Sales](docs/screenshots/07-sales.png) Sales grouped by day, with payment chips and cashier avatars |
+| ![Reports](docs/screenshots/09-reports.png) Reports | ![Stock log](docs/screenshots/08-stock-log.png) Stock log, by day |
 
 | | | |
 |---|---|---|
-| ![Phone dashboard](docs/screenshots/20-phone-dashboard.png) | ![Phone POS](docs/screenshots/22-phone-pos.png) | ![Phone receipt](docs/screenshots/23-phone-receipt.png) |
+| ![Phone dashboard](docs/screenshots/20-phone-dashboard.png) | ![Phone POS](docs/screenshots/22-phone-pos.png) | ![Phone sales](docs/screenshots/24-phone-sales.png) |
 
 Every screen is in [`docs/screenshots`](docs/screenshots). They're regenerated with `node scripts/screenshots.js`.
 
