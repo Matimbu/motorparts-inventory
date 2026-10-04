@@ -167,11 +167,12 @@ async function run() {
   await shot('21-phone-inventory', 'Inventory on a phone', async () => { await go('#/inventory'); await evaluate(`document.querySelector('[data-s="all"]')?.click();`); });
   await shot('22-phone-pos', 'POS on a phone', async () => {
     await go('#/sell');
-    await evaluate(`const q = document.querySelector('#pos-q'); q.value = 'flyball'; q.dispatchEvent(new Event('input'));
+    await evaluate(`const q = document.querySelector('#pos-q'); q.value = ''; q.dispatchEvent(new Event('input'));
       await new Promise(r => setTimeout(r, 150));
       [...document.querySelectorAll('#pos-results .pos-item:not(.disabled)')].filter(r => !r.innerText.includes('No SRP'))[0]?.click();`);
     await settle(200);
   });
+  await shot('24-phone-sales', 'Sales grouped by day on a phone', async () => { await go('#/sales'); await settle(300); });
   await shot('23-phone-receipt', 'Receipt on a phone', async () => {
     await evaluate(`document.querySelector('[data-clear]')?.click();`);
     await go('#/sales');

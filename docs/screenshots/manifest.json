@@ -90,5 +90,9 @@
  {
   "file": "23-phone-receipt.png",
   "title": "Receipt on a phone"
+ },
+ {
+  "file": "24-phone-sales.png",
+  "title": "Sales grouped by day on a phone"
  }
 ]

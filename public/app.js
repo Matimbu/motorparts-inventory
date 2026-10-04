@@ -83,13 +83,46 @@ const fmtDate = (s) => { if (!s) return ''; const d = new Date(s.replace(' ', 'T
 const fmtDateTime = (s) => { if (!s) return ''; const d = new Date(s.replace(' ', 'T')); return d.toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); };
 const isAdmin = () => state.user?.role === 'admin';
 const itemStatus = (it) => it.stock <= 0 ? 'out' : it.stock <= it.reorder_level ? 'low' : 'ok';
-const statusPill = (it) => ({ out: '<span class="pill out">No stock</span>', low: '<span class="pill low">Low stock</span>', ok: '<span class="pill ok">Available</span>' })[itemStatus(it)];
+// Normal is quiet: only the items that need a look get a pill, so they stand out from their neighbours.
+const statusPill = (it, quiet) => ({ out: '<span class="pill out">No stock</span>', low: '<span class="pill low">Low stock</span>',
+  ok: quiet ? '' : '<span class="pill ok">In stock</span>' })[itemStatus(it)];
+const stockLevel = (it) => {
+  const st = itemStatus(it);
+  if (st === 'ok') return '';
+  const pct = Math.min(100, Math.round((it.stock / Math.max(it.reorder_level * 2, 6)) * 100));
+  return `<span class="lvl ${st}" aria-hidden="true"><i style="width:${st === 'out' ? 0 : Math.max(pct, 8)}%"></i></span>`;
+};
 const MOVE_LABEL = { IN: 'Stock in', OUT: 'Stock out', SALE: 'Sale', ADJUST: 'Count adjust', VOID: 'Sale voided', NEW: 'Added' };
 const fromSheet = (m) => /Google Sheet/.test(m.note || '');
 const isReturn = (m) => /^Customer return/.test(m.note || '');
 const moveTag = (m, withQty) => `<span class="tag ${fromSheet(m) ? 'SYNC' : isReturn(m) ? 'RETURN' : m.type}">${
   fromSheet(m) ? (m.type === 'NEW' ? 'From sheet' : 'Sheet sync') : isReturn(m) ? 'Return' : MOVE_LABEL[m.type]}${
   withQty ? ` ${m.qty > 0 ? '+' : ''}${m.qty}` : ''}</span>`;
+const fmtTime = (s) => s ? new Date(s.replace(' ', 'T')).toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' }) : '';
+const dayKey = (at) => String(at).slice(0, 10);
+const dayLabel = (key) => {
+  if (key === ymd()) return 'Today';
+  if (key === ymd(addDays(new Date(), -1))) return 'Yesterday';
+  return new Date(key + 'T00:00').toLocaleDateString('en-PH', { weekday: 'long', month: 'short', day: 'numeric' });
+};
+// Rows in labelled groups (a header row whenever the key changes), so a long list reads in chunks.
+function groupRows(rows, keyFn, headFn, rowFn, cols) {
+  let last, out = '';
+  for (const r of rows) {
+    const k = keyFn(r);
+    if (k !== last) { last = k; out += `<tr class="grp"><td colspan="${cols}">${headFn(k, rows.filter(x => keyFn(x) === k))}</td></tr>`; }
+    out += rowFn(r);
+  }
+  return out;
+}
+const PAY = { cash: ['Cash', 'cash'], gcash: ['GCash', 'phone'], maya: ['Maya', 'phone'], cod: ['COD', 'truck'], bank: ['Bank', 'bank'] };
+const payKey = (p) => /gcash/i.test(p) ? 'gcash' : /maya/i.test(p) ? 'maya' : /cod/i.test(p) ? 'cod' : /bank/i.test(p) ? 'bank' : 'cash';
+// colour AND an icon AND the word, so the method never depends on colour alone
+const payChip = (p) => { const k = payKey(p); return `<span class="pay ${k}">${icon(PAY[k][1])}${esc(String(p).replace(/ \(.*\)/, ''))}</span>`; };
+const avatar = (username) => {
+  const n = String(username || '?'), h = [...n].reduce((a, c) => a + c.charCodeAt(0), 0) % 5;
+  return `<span class="who"><span class="avatar a${h}" title="${esc(n)}">${esc(n.slice(0, 2).toUpperCase())}</span><span class="hide-sm">${esc(n)}</span></span>`;
+};
 const ago = (iso) => {
   const sec = Math.max(0, (Date.now() - Date.parse(iso)) / 1000);
   return sec < 60 ? 'just now' : sec < 3600 ? `${Math.floor(sec / 60)} min ago` : sec < 86400 ? `${Math.floor(sec / 3600)} h ago` : fmtDateTime(iso);
@@ -140,6 +173,9 @@ const I = {
   x: '<path d="M18 6 6 18M6 6l12 12"/>',
   down: '<path d="M12 3v12M7 10l5 5 5-5M5 21h14"/>',
   print: '<path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M6 14h12v8H6z"/>',
+  cash: '<rect x="3" y="6" width="18" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/>',
+  phone: '<rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/>',
+  bank: '<path d="M3 10l9-6 9 6M5 10v8M9 10v8M15 10v8M19 10v8M3 20h18"/>',
   inout: '<path d="M7 4v16M3 16l4 4 4-4M17 20V4M13 8l4-4 4 4"/>',
   lock: '<rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/><circle cx="12" cy="15.5" r="1.3"/>',
   truck: '<path d="M3 6h11v10H3zM14 9h4l3 3v4h-7"/><circle cx="7" cy="17.5" r="1.8"/><circle cx="17" cy="17.5" r="1.8"/>',
@@ -414,9 +450,9 @@ PAGES.inventory = async (main) => {
       <div class="summary-bar" id="inv-sum"></div>
       <div class="table-wrap"><table class="tbl responsive">
         <thead><tr>
-          ${[['name', 'Item'], ['category', 'Category'], ['stock', 'Stock', 'r'], ['cost', 'Unit cost', 'r'], ['srp', 'SRP', 'r'], ['value', 'Total cost', 'r']]
+          ${[['name', 'Item'], ['stock', 'Stock', 'r'], ['cost', 'Unit cost', 'r'], ['srp', 'SRP', 'r'], ['value', 'Total cost', 'r']]
             .map(([k, l, c]) => `<th class="sortable ${c || ''}" data-sort="${k}">${l}<span data-arrow="${k}"></span></th>`).join('')}
-          <th>Status</th><th></th></tr></thead>
+          <th>Status</th></tr></thead>
         <tbody id="inv-body"></tbody></table></div>
     </div>`;
 
@@ -447,23 +483,23 @@ PAGES.inventory = async (main) => {
       ${unpriced ? `<span class="bulk-price">Type a price in each row, or set all at cost +
         <input class="input num" id="markup" type="number" min="1" max="300" value="30">%
         <button class="btn sm primary" data-bulkprice>Set all</button></span>` : ''}`;
-    $('#inv-body').innerHTML = rows.length ? rows.map(it => {
+    const row = (it) => {
       const margin = it.srp - it.cost;
       return `<tr class="clickable" data-id="${it.id}">
-        <td class="first"><div class="item-name">${esc(it.name)}</div><div class="item-sub">${esc(it.sku)} · Fits: ${esc(it.compat)}</div></td>
-        <td class="hide-sm">${esc(it.category)}</td>
-        <td class="r num" data-l="Stock"><b>${count(it.stock)}</b></td>
+        <td class="first"><div class="item-name">${esc(it.name)}</div><div class="item-sub">${esc(it.sku)} · ${f.sort === 'category' ? '' : esc(it.category) + ' · '}Fits: ${esc(it.compat)}</div></td>
+        <td class="r num" data-l="Stock"><b class="${it.stock <= 0 ? 'zero' : ''}">${count(it.stock)}</b>${stockLevel(it)}</td>
         <td class="r num" data-l="Cost">${peso(it.cost)}</td>
         <td class="r num" data-l="SRP">${it.srp > 0 ? `${peso(it.srp)}<div class="item-sub" title="Profit per piece">+${peso(margin)}</div>`
           : `<span class="srp-quick"><input class="input num srp-in" data-id="${it.id}" type="number" min="1" step="1"
               placeholder="${it.cost > 0 ? suggestSrp(it.cost) : 'SRP'}" title="No selling price yet. Type one and press Enter."></span>`}</td>
         <td class="r num" data-l="Total">${peso(it.stock * it.cost)}</td>
-        <td>${statusPill(it)}</td>
-        <td class="actions">
-          <button class="btn sm" data-stock="${it.id}">${icon('inout')}Stock</button>
-          <button class="icon-btn" data-edit="${it.id}" title="Edit">${icon('edit')}</button>
-        </td></tr>`;
-    }).join('') : `<tr><td colspan="8" class="empty">No items match your search.</td></tr>`;
+        <td>${statusPill(it, true)}</td></tr>`;
+    };
+    // sorted by category (the default) the list reads as labelled sections
+    $('#inv-body').innerHTML = !rows.length ? `<tr><td colspan="6" class="empty">No items match your search.</td></tr>`
+      : f.sort === 'category' ? groupRows(rows, it => it.category, (cat, g) => `<b>${esc(cat)}</b>
+          <span class="muted">${g.length} item${g.length === 1 ? '' : 's'} · ${peso(g.reduce((t, i) => t + i.stock * i.cost, 0))}</span>`, row, 6)
+      : rows.map(row).join('');
   };
   draw();
 
@@ -623,7 +659,7 @@ async function itemDetail(id, after) {
   const it = await api('GET', `/api/items/${id}`);
   const m = openModal({
     title: it.name, wide: true,
-    body: `<div class="muted" style="margin:-6px 0 14px;font-size:13px">${esc(it.sku)} · ${esc(it.category)} · Fits: ${esc(it.compat)} · ${statusPill(it)}</div>
+    body: `<div class="muted" style="margin:-6px 0 14px;font-size:13px">${esc(it.sku)} · ${esc(it.category)} · Fits: ${esc(it.compat)}${statusPill(it, true) ? ' · ' + statusPill(it, true) : ''}</div>
       <div class="kv">
         <div><span>In stock</span><b class="num">${count(it.stock)}</b></div>
         <div><span>Unit cost</span><b class="num">${peso(it.cost)}</b></div>
@@ -663,7 +699,7 @@ PAGES.sell = async (main) => {
         <div class="pos-hint muted" id="pos-hint"></div>
         <div class="pos-results" id="pos-results"></div>
       </div>
-      <div class="card cart">
+      <div class="card cart" id="cart-card">
         <div class="card-head" style="padding-bottom:12px;border-bottom:1px solid var(--line)"><h2>Current sale</h2><button class="btn sm" data-clear>Clear</button></div>
         <div class="cart-lines" id="cart-lines"></div>
         <div class="cart-total">
@@ -676,7 +712,8 @@ PAGES.sell = async (main) => {
           <button class="btn primary block" id="pos-done" style="padding:13px">Complete sale</button>
         </div>
       </div>
-    </div>`;
+    </div>
+    <div class="cart-bar" id="cart-bar" hidden><span id="cb-text"></span><button class="btn primary" id="cb-go" type="button">Review sale ›</button></div>`;
 
   const drawResults = () => {
     const raw = $('#pos-q').value.trim(), q = raw.toLowerCase().split(/\s+/).filter(Boolean), cat = $('#pos-cat').value, p = state.pos;
@@ -707,7 +744,16 @@ PAGES.sell = async (main) => {
     $('#c-units').textContent = c.reduce((s, l) => s + l.qty, 0);
     $('#c-total').textContent = peso(c.reduce((s, l) => s + l.qty * l.price, 0));
     $('#pos-done').disabled = !c.length || c.some(l => !(l.price > 0));
+    const units = c.reduce((t, l) => t + l.qty, 0);
+    $('#cb-text').innerHTML = `<b>${units}</b> item${units === 1 ? '' : 's'} · <b class="num">${peso(c.reduce((t, l) => t + l.qty * l.price, 0))}</b>`;
+    $('#cart-bar').dataset.has = c.length ? '1' : '';
+    $('#cart-bar').hidden = !c.length || cartInView;
   };
+  // on a phone the cart sits below the list: a bar follows you until the cart itself is on screen
+  let cartInView = false;
+  new IntersectionObserver(([e]) => { cartInView = e.isIntersecting; $('#cart-bar').hidden = !$('#cart-bar').dataset.has || cartInView; },
+    { threshold: 0.15 }).observe($('#cart-card'));
+  $('#cb-go').onclick = () => $('#cart-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
   drawResults(); drawCart();
   const lastPay = remember.get('pos.payment');
   if (lastPay && PAYMENTS.includes(lastPay)) $('#pos-pay').value = lastPay;
@@ -887,7 +933,7 @@ PAGES.sales = async (main) => {
       <div class="toolbar"><div class="date-range"><input class="input" type="date" id="s-from" value="${from}"><span class="muted">to</span>
         <input class="input" type="date" id="s-to" value="${to}"></div></div>
       <div class="summary-bar" id="s-sum"></div>
-      <div class="table-wrap"><table class="tbl responsive"><thead><tr><th>Receipt</th><th>Date</th><th>Customer</th><th>Payment</th>
+      <div class="table-wrap"><table class="tbl responsive"><thead><tr><th>Receipt</th><th>Time</th><th>Customer</th><th>Payment</th>
         <th class="r">Items</th><th class="r">Total</th><th class="r">Profit</th><th>Cashier</th></tr></thead><tbody id="s-body"></tbody></table></div>
     </div>`;
   const load = async () => {
@@ -897,14 +943,18 @@ PAGES.sales = async (main) => {
     $('#s-sum').innerHTML = `<span><b>${live.length}</b> sales</span><span>Total <b class="num">${peso(live.reduce((s, r) => s + r.total - r.returned, 0))}</b></span>
       <span>Profit <b class="num">${peso(live.reduce((s, r) => s + r.total - r.cost_total - (r.returned - r.returned_cost), 0))}</b></span>
       ${returned ? `<span>Returns <b class="num">${peso(returned)}</b></span>` : ''}${rows.length - live.length ? `<span>${rows.length - live.length} voided</span>` : ''}`;
-    $('#s-body').innerHTML = rows.length ? rows.map(r => `<tr class="clickable ${r.voided ? 'voided' : ''}" data-id="${r.id}">
+    const row = (r) => `<tr class="clickable ${r.voided ? 'voided' : ''}" data-id="${r.id}">
       <td class="first keep"><b>#${esc(r.receipt_no)}</b>${r.voided ? ' <span class="pill out" style="text-decoration:none">Voided</span>'
         : r.returned ? ` <span class="pill low">${r.returned >= r.total ? 'Returned' : 'Part returned'}</span>` : ''}</td>
-      <td data-l="Date">${fmtDateTime(r.at)}</td><td data-l="Customer">${esc(r.customer || 'Walk-in')}</td><td data-l="Paid">${esc(r.payment)}</td>
+      <td data-l="Time">${fmtTime(r.at)}</td><td data-l="Customer">${esc(r.customer || 'Walk-in')}</td><td class="keep">${payChip(r.payment)}</td>
       <td class="r num" data-l="Items">${r.units}</td><td class="r num" data-l="Total"><b>${peso(r.total - r.returned)}</b>${
         r.returned ? `<div class="item-sub">of ${peso(r.total)}</div>` : ''}</td>
-      <td class="r num" data-l="Profit">${peso(r.total - r.cost_total - (r.returned - r.returned_cost))}</td><td class="hide-sm">${esc(r.username || '')}</td></tr>`).join('')
-      : `<tr><td colspan="8" class="empty">No sales in this date range.</td></tr>`;
+      <td class="r num" data-l="Profit">${peso(r.total - r.cost_total - (r.returned - r.returned_cost))}</td><td class="keep">${avatar(r.username)}</td></tr>`;
+    $('#s-body').innerHTML = !rows.length ? `<tr><td colspan="8" class="empty">No sales in this date range.</td></tr>`
+      : groupRows(rows, r => dayKey(r.at), (day, g) => {
+          const kept = g.filter(r => !r.voided);
+          return `<b>${esc(dayLabel(day))}</b> <span class="muted">${kept.length} sale${kept.length === 1 ? '' : 's'} · ${peso(kept.reduce((t, r) => t + r.total - r.returned, 0))}</span>`;
+        }, row, 8);
   };
   $('#s-from').onchange = (e) => { from = e.target.value; load(); };
   $('#s-to').onchange = (e) => { to = e.target.value; load(); };
@@ -922,18 +972,19 @@ PAGES['stock-log'] = async (main) => {
           .map(([k, l]) => `<button class="chip ${k === type ? 'on' : ''}" data-t="${k}">${l}</button>`).join('')}</div>
         <div class="date-range" style="margin-left:auto"><input class="input" type="date" id="l-from" value="${from}"><span class="muted">to</span><input class="input" type="date" id="l-to" value="${to}"></div>
       </div>
-      <div class="table-wrap"><table class="tbl responsive"><thead><tr><th>Date</th><th>Item</th><th>Action</th><th class="r">Qty</th><th class="r">Stock after</th><th>Note</th><th>By</th></tr></thead>
+      <div class="table-wrap"><table class="tbl responsive"><thead><tr><th>Time</th><th>Item</th><th>Action</th><th class="r">Qty</th><th class="r">Stock after</th><th>Note</th><th>By</th></tr></thead>
         <tbody id="l-body"></tbody></table></div>
     </div>`;
   const load = async () => {
     const rows = await api('GET', `/api/movements?type=${type}&from=${from}&to=${to}`);
-    $('#l-body').innerHTML = rows.length ? rows.map(m => `<tr class="clickable" data-item="${m.item_id}">
-      <td data-l="Date" style="white-space:nowrap">${fmtDateTime(m.at)}</td>
+    const row = (m) => `<tr class="clickable" data-item="${m.item_id}">
+      <td data-l="Time" style="white-space:nowrap">${fmtTime(m.at)}</td>
       <td class="first"><div class="item-name">${esc(m.name)}</div><div class="item-sub">${esc(m.sku)}</div></td>
       <td>${moveTag(m)}</td>
       <td class="r num" data-l="Qty"><b>${m.qty > 0 ? '+' : ''}${m.qty}</b></td><td class="r num" data-l="After">${m.stock_after}</td>
-      <td data-l="Note">${esc(m.note)}${m.receipt_no ? ` <span class="muted">#${esc(m.receipt_no)}</span>` : ''}</td><td class="hide-sm">${esc(m.username || '')}</td></tr>`).join('')
-      : `<tr><td colspan="7" class="empty">No stock movements in this range.</td></tr>`;
+      <td data-l="Note">${esc(m.note)}${m.receipt_no ? ` <span class="muted">#${esc(m.receipt_no)}</span>` : ''}</td><td class="keep">${avatar(m.username)}</td></tr>`;
+    $('#l-body').innerHTML = !rows.length ? `<tr><td colspan="7" class="empty">No stock movements in this range.</td></tr>`
+      : groupRows(rows, m => dayKey(m.at), (day, g) => `<b>${esc(dayLabel(day))}</b> <span class="muted">${g.length} movement${g.length === 1 ? '' : 's'}</span>`, row, 7);
   };
   $('#l-type').onclick = (e) => { const b = e.target.closest('[data-t]'); if (!b) return; type = b.dataset.t;
     $('#l-type').querySelectorAll('.chip').forEach(c => c.classList.toggle('on', c === b)); load(); };
