@@ -94,5 +94,13 @@
  {
   "file": "24-phone-sales.png",
   "title": "Sales grouped by day on a phone"
+ },
+ {
+  "file": "25-nightly-summary.png",
+  "title": "Nightly summary for the owner"
+ },
+ {
+  "file": "26-undo.png",
+  "title": "Undo after a stock change"
  }
 ]

@@ -142,6 +142,21 @@ async function run() {
     await evaluate(`const i = document.querySelector('.srp-in'); i.focus(); i.value = i.placeholder;`);
     await settle(200);
   });
+  await shot('25-nightly-summary', 'Nightly summary for the owner', async () => {
+    await go('#/settings');
+    const has = await evaluate(`const el = document.querySelector('.summary-pre'); el?.closest('.card')?.scrollIntoView({ block: 'start' }); return !!el;`);
+    if (!has) return false;
+    await settle(200);
+  });
+  await shot('26-undo', 'Undo after a stock change', async () => {
+    await go('#/inventory');
+    await evaluate(`document.querySelector('#inv-body tr[data-id]')?.click();`); await settle(500);
+    await evaluate(`document.querySelector('[data-in]')?.click();`); await settle(300);
+    await evaluate(`const q = document.querySelector('#stock-form [name=qty]'); q.value = 6; q.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector('[data-save]').click();`);
+    await settle(700);
+    return evaluate(`return !!document.querySelector('.toast .has-undo, .toast.has-undo');`);
+  });
   await shot('07-sales', 'Sales history', async () => { await go('#/sales'); await settle(300); });
   await shot('08-stock-log', 'Stock log', async () => { await go('#/stock-log'); await settle(300); });
   await shot('09-reports', 'Reports', async () => { await go('#/reports'); await settle(500); });

@@ -150,12 +150,24 @@ function printDoc(html) {
   window.print();
 }
 
-function toast(msg, type = '') {
+// `undo` adds an Undo button for a few seconds; it runs the function and reports how it went.
+function toast(msg, type = '', undo) {
   const el = document.createElement('div');
-  el.className = 'toast ' + type; el.textContent = msg;
+  el.className = 'toast ' + type;
+  el.append(Object.assign(document.createElement('span'), { textContent: msg }));
+  if (undo) {
+    const b = Object.assign(document.createElement('button'), { type: 'button', textContent: 'Undo' });
+    b.onclick = async () => {
+      b.disabled = true;
+      try { await undo(); el.remove(); toast('Undone'); } catch (e) { el.remove(); toast(e.message, 'error'); }
+    };
+    el.append(b); el.classList.add('has-undo');
+  }
   $('#toast-root').appendChild(el);
-  setTimeout(() => el.remove(), 2800);
+  setTimeout(() => el.remove(), undo ? 9000 : 2800);
 }
+// refresh whatever page is open after an undo (the screen it came from may be gone)
+const refreshAfterUndo = async (after) => { await loadItems(); try { after?.(); } catch { /* page changed */ } };
 
 const I = {
   dash: '<path d="M3 13h8V3H3zM13 21h8V11h-8zM3 21h8v-6H3zM13 3v6h8V3z"/>',
@@ -534,8 +546,11 @@ PAGES.inventory = async (main) => {
     const srp = Number(e.target.value);
     if (!(srp > 0)) return;
     try {
-      await api('POST', '/api/items/prices', { prices: [{ id: Number(e.target.dataset.id), srp }] });
-      toast(`Price set: ${peso(srp)}`); await loadItems(); draw();
+      const r = await api('POST', '/api/items/prices', { prices: [{ id: Number(e.target.dataset.id), srp }] });
+      toast(`Price set: ${peso(srp)}`, '', async () => {
+        await api('POST', '/api/items/prices', { prices: r.previous, restore: true }); await refreshAfterUndo(draw);
+      });
+      await loadItems(); draw();
     } catch (err) { toast(err.message, 'error'); }
   });
   $('#inv-sum').addEventListener('click', async (e) => {
@@ -545,7 +560,13 @@ PAGES.inventory = async (main) => {
     if (!list.length) return;
     if (!await confirmBox('Set prices for all?', `Give <b>${list.length}</b> items without an SRP a price of cost + ${markup}%, rounded to ₱5.
       You can still change any of them later. A price the owner sets in the Google Sheet replaces these on the next sync.`, 'Set prices', false)) return;
-    try { const r = await api('POST', '/api/items/prices', { prices: list }); toast(`${r.saved} prices set`); await loadItems(); draw(); }
+    try {
+      const r = await api('POST', '/api/items/prices', { prices: list });
+      toast(`${r.saved} prices set`, '', async () => {
+        await api('POST', '/api/items/prices', { prices: r.previous, restore: true }); await refreshAfterUndo(draw);
+      });
+      await loadItems(); draw();
+    }
     catch (err) { toast(err.message, 'error'); }
   });
 };
@@ -589,7 +610,12 @@ function itemForm(id, after) {
     try {
       if (id) await api('PUT', `/api/items/${id}`, formData(form));
       else await api('POST', '/api/items', formData(form));
-      closeModal(); toast(id ? 'Item updated' : 'Item added');
+      closeModal();
+      toast(id ? 'Item updated' : 'Item added', '', id ? async () => {
+        await api('PUT', `/api/items/${id}`, { sku: it.sku, name: it.name, category_id: it.category_id, compat: it.compat,
+          cost: it.cost, srp: it.srp, reorder_level: it.reorder_level });
+        await refreshAfterUndo(after);
+      } : undefined);
       await loadItems(); after?.();
     } catch (e) { showErr(m, e.message); }
   };
@@ -647,7 +673,11 @@ function stockModal(id, after, startType = 'IN') {
       const body = { type, qty: form.qty.value, note: form.note.value };
       if (type === 'IN') body.cost = form.cost.value;
       const r = await api('POST', `/api/items/${id}/stock`, body);
-      closeModal(); toast(`Stock updated — now ${r.stock}`);
+      closeModal();
+      toast(`Stock updated, now ${r.stock}`, '', async () => {
+        await api('POST', `/api/movements/${r.movement_id}/undo`, { previous_cost: r.previous_cost });
+        await refreshAfterUndo(after);
+      });
       await loadItems(); after?.();
     } catch (e) { showErr(m, e.message); }
   };
@@ -1170,6 +1200,41 @@ PAGES.reports = async (main) => {
   await load();
 };
 
+// ------------------------------------------------------------ nightly summary
+function summaryCard(d) {
+  const st = d.settings;
+  return `<div class="card"><div class="card-head"><h2>Nightly summary</h2></div>
+    <div class="card-pad stack">
+      <p class="muted" style="margin:0">A short end-of-day message for the owner: sales, profit, cash and what ran out. This is today's, so far:</p>
+      <pre class="summary-pre" id="sm-text">${esc(d.text)}</pre>
+      <div class="sm-row">
+        <label class="uni-toggle"><input type="checkbox" id="sm-on" ${st.on ? 'checked' : ''} ${st.channel ? '' : 'disabled'}> Send every night at</label>
+        <input class="input" type="time" id="sm-time" value="${esc(st.time)}" style="width:auto">
+      </div>
+      ${st.channel ? '' : `<div class="sync-status">Telegram isn't connected on this server, so it can't send on its own yet. Preview and copy work now.
+        To turn sending on: make a bot with @BotFather in Telegram, then add <b>TELEGRAM_BOT_TOKEN</b> and <b>TELEGRAM_CHAT_ID</b> as variables on the server.</div>`}
+      ${st.error ? `<div class="sync-status error">Last send failed: ${esc(st.error)}</div>` : st.lastSent ? `<div class="muted" style="font-size:12.5px">Last sent ${ago(st.lastSent)}.</div>` : ''}
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn" type="button" data-smsave ${st.channel ? '' : 'disabled'}>Save</button>
+        <button class="btn" type="button" data-smcopy>Copy</button>
+        <button class="btn primary" type="button" data-smtest ${st.channel ? '' : 'disabled'}>Send a test now</button>
+      </div></div></div>`;
+}
+function bindSummaryCard(main, reload) {
+  main.querySelector('[data-smcopy]').onclick = async () => {
+    try { await navigator.clipboard.writeText($('#sm-text').textContent); toast('Copied'); } catch { toast('Copy blocked by the browser', 'error'); }
+  };
+  main.querySelector('[data-smsave]').onclick = async () => {
+    try { await api('PUT', '/api/summary/settings', { on: $('#sm-on').checked, time: $('#sm-time').value }); toast('Saved'); reload(); }
+    catch (e) { toast(e.message, 'error'); }
+  };
+  main.querySelector('[data-smtest]').onclick = async (e) => {
+    const b = e.currentTarget; b.disabled = true;
+    try { await api('POST', '/api/summary/send'); toast('Sent. Check Telegram.'); } catch (err) { toast(err.message, 'error'); }
+    finally { b.disabled = false; }
+  };
+}
+
 // ------------------------------------------------------------ Google Sheet sync
 function sheetStatusHtml(st) {
   if (st.error) return `<div class="sync-status error">${esc(st.error)}</div>`;
@@ -1257,12 +1322,13 @@ function showSyncPreview(p, after) {
 // ------------------------------------------------------------ settings
 PAGES.settings = async (main) => {
   const admin = isAdmin();
-  const [users, cats, sheet] = await Promise.all([admin ? api('GET', '/api/users') : [], api('GET', '/api/categories'),
-    admin ? api('GET', '/api/sheet') : null]);
+  const [users, cats, sheet, summary] = await Promise.all([admin ? api('GET', '/api/users') : [], api('GET', '/api/categories'),
+    admin ? api('GET', '/api/sheet') : null, admin ? api('GET', '/api/summary') : null]);
   main.innerHTML = pageHead('Settings', admin ? 'Google Sheet sync, accounts, categories and backups.' : 'Your account.') + `
     <div class="settings-grid">
       <div class="stack" style="gap:18px">
         ${admin ? sheetCard(sheet) : ''}
+        ${admin ? summaryCard(summary) : ''}
         <div class="card"><div class="card-head"><h2>Receipt printer</h2></div>
           <div class="card-pad stack"><p class="muted" style="margin:0">Paper size for receipts, reorder lists and Z-reports printed from this device.</p>
             <select class="select" id="paper">${PAPERS.map(([v, l]) => `<option value="${v}" ${(remember.get('print.paper') || '80') === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
@@ -1305,6 +1371,7 @@ PAGES.settings = async (main) => {
   if (!admin) return;
   const reload = () => route();
   bindSheetCard(main, reload);
+  bindSummaryCard(main, reload);
   main.querySelector('[data-adduser]').onclick = () => {
     const m = openModal({ title: 'Add account',
       body: `<form class="stack"><div class="err hidden"></div>

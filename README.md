@@ -27,6 +27,7 @@ You need Node.js 22.13 or newer. The first start generates about 200 parts and t
 **At the counter**
 - **Fits my bike.** Tap NMAX, Click, Aerox and so on to see every part that fits. It reads the shop's own "fits" notes, like `NMAX / AEROX` or `CLICK 125 / 150`, and brand-level fits (`HONDA`) count for that brand's bikes.
 - **Fast POS.** Best sellers of the last 30 days come first, and `/` jumps to search from anywhere. It remembers the last payment method (Cash, GCash, Maya, COD).
+- **Undo, not "are you sure?".** After a stock change, a price edit or an item edit, an Undo button appears for a few seconds. It only works while nothing else has touched the item, so it can't corrupt the stock.
 - **Guard rails.** It won't sell more than you have, won't ring up an item at ₱0, and warns when a discount goes below cost.
 - **Returns.** Return one item from a receipt (wrong fitment is common with parts). Stock goes back, and the refund counts on the day it's given.
 - **Receipts** sized for 80mm and 58mm thermal printers, labeled as acknowledgement receipts.
@@ -35,6 +36,7 @@ You need Node.js 22.13 or newer. The first start generates about 200 parts and t
 - **Dashboard** with money in stock, retail value, today's and this month's sales and profit, what to restock, and money per category.
 - **Daily closing.** Totals per payment method and cashier. Count the cash drawer bill by bill and see if it's over or short, with a history of every closing and a printable Z-report.
 - **Reports** for any date range: sales, gross profit and margin, best sellers, by category and payment method, all net of returns.
+- **Nightly summary.** A short end-of-day message: sales, profit, payment mix, best sellers, whether the drawer was exact or short, and what ran out. Preview and copy it from Settings, or have it sent to the owner's Telegram every night.
 - **Reorder list** of low and out-of-stock items with suggested quantities and cost, copied ready to paste into Messenger for the supplier.
 - **Stock log** of every delivery, sale, return, pull-out and count, with who did it.
 
@@ -73,6 +75,7 @@ Nobody reads a POS screen; they hunt for one answer. So the interface does the r
 | ![Sheet sync](docs/screenshots/11-sheet-sync.png) Google Sheet sync preview | ![Reorder list](docs/screenshots/18-reorder-list.png) Reorder list for the supplier |
 | ![Inventory](docs/screenshots/03-inventory.png) Inventory: grouped by category, quiet when stock is normal | ![Sales](docs/screenshots/07-sales.png) Sales grouped by day, with payment chips and cashier avatars |
 | ![Reports](docs/screenshots/09-reports.png) Reports | ![Stock log](docs/screenshots/08-stock-log.png) Stock log, by day |
+| ![Nightly summary](docs/screenshots/25-nightly-summary.png) Nightly summary for the owner | ![Undo](docs/screenshots/26-undo.png) Undo after a stock change |
 
 | | | |
 |---|---|---|

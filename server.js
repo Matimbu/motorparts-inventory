@@ -457,12 +457,16 @@ route('POST', '/api/items/prices', ({ body }) => tx(() => {
   if (!list.length) bad('No prices to save');
   const set = db.prepare(`UPDATE items SET srp = ?, updated_at = datetime('now') WHERE id = ? AND archived = 0`);
   let saved = 0;
+  const previous = [];
   for (const p of list) {
     const srp = num(p.srp, 'SRP');
-    if (srp <= 0) bad('Prices must be more than ₱0');
-    saved += set.run(srp, int(p.id, 'Item')).changes;
+    if (srp <= 0 && !body.restore) bad('Prices must be more than ₱0');   // restore = undoing back to "no price yet"
+    const id = int(p.id, 'Item');
+    const before = db.prepare('SELECT srp FROM items WHERE id = ?').get(id);
+    if (before) previous.push({ id, srp: before.srp });
+    saved += set.run(srp, id).changes;
   }
-  return { saved };
+  return { saved, previous };
 }));
 route('PUT', '/api/items/:id', ({ body, params }) => {
   const it = readItem(body);
@@ -496,13 +500,34 @@ route('POST', '/api/items/:id/stock', ({ user, body, params }) => tx(() => {
     next = item.stock - qty;
   } else if (type === 'ADJUST') { if (qty < 0) bad('Count cannot be negative'); next = qty; }
   else bad('Unknown stock action');
+  const previousCost = item.cost;
   if (type === 'IN' && body.cost !== undefined && body.cost !== '') {
     db.prepare('UPDATE items SET cost = ? WHERE id = ?').run(num(body.cost, 'Unit cost'), item.id);
   }
   db.prepare(`UPDATE items SET stock = ?, updated_at = datetime('now') WHERE id = ?`).run(next, item.id);
-  logMove(item.id, type, type === 'ADJUST' ? next - item.stock : (type === 'OUT' ? -qty : qty), next, str(body.note), user.id);
-  return { stock: next };
+  const delta = type === 'ADJUST' ? next - item.stock : (type === 'OUT' ? -qty : qty);
+  logMove(item.id, type, delta, next, str(body.note), user.id);
+  const movementId = Number(db.prepare('SELECT last_insert_rowid() AS id').get().id);
+  return { stock: next, movement_id: movementId, previous_cost: previousCost };
 }));
+
+// Undo a stock change made in the last 15 minutes, but only while nothing else has touched the item since.
+route('POST', '/api/movements/:id/undo', ({ user, body, params }) => tx(() => {
+  const m = db.prepare(`SELECT m.*, i.stock AS now_stock, i.archived FROM movements m JOIN items i ON i.id = m.item_id WHERE m.id = ?`).get(params.id);
+  if (!m) throw new HttpError(404, 'That change was not found');
+  if (!['IN', 'OUT', 'ADJUST'].includes(m.type) || m.sale_id) bad('Only manual stock changes can be undone');
+  if (m.archived) bad('This item is no longer in the Google Sheet');
+  if (db.prepare(`SELECT 1 WHERE datetime('now', '-15 minutes') > ?`).get(m.created_at)) bad('Too late to undo. Make a new stock change instead.');
+  if (m.now_stock !== m.stock_after) bad('The stock changed again since then, so it can\'t be undone safely.');
+  const back = m.stock_after - m.qty;
+  if (back < 0) bad('That would make the stock negative');
+  db.prepare(`UPDATE items SET stock = ?, updated_at = datetime('now') WHERE id = ?`).run(back, m.item_id);
+  if (m.type === 'IN' && body.previous_cost !== undefined && body.previous_cost !== null)
+    db.prepare('UPDATE items SET cost = ? WHERE id = ?').run(num(body.previous_cost, 'Unit cost'), m.item_id);
+  logMove(m.item_id, m.qty > 0 ? 'OUT' : m.qty < 0 ? 'IN' : 'ADJUST', -m.qty, back, `Undo of ${MOVE_WORD[m.type]}`, user.id);
+  return { stock: back };
+}));
+const MOVE_WORD = { IN: 'stock in', OUT: 'stock out', ADJUST: 'count' };
 
 route('GET', '/api/movements', ({ query }) => {
   const where = ["m.type <> 'NEW' OR m.note NOT LIKE 'Imported from %'"];
@@ -948,6 +973,85 @@ async function autoSyncTick() {
   try { await runSync(null, true); } catch { /* recorded in sheet_error */ }
 }
 setInterval(autoSyncTick, 60000).unref();
+
+// ---------------------------------------------------------------- nightly summary
+// A short end-of-day message for the owner: sales, profit, cash, what ran out. Sent to Telegram when a bot is
+// configured through TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID (kept in the environment, never in the database).
+const php = (n) => '₱' + Math.round(Number(n) || 0).toLocaleString('en-PH');
+const CHANNEL_READY = !!(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID);
+const nowManila = () => db.prepare(`SELECT strftime('%H:%M', 'now', ${LT}) AS t`).get().t;
+
+function buildSummary(day) {
+  const d = daySummary(day);
+  const stockLine = db.prepare(`SELECT SUM(stock <= 0) AS out_n, SUM(stock > 0 AND stock <= reorder_level) AS low_n FROM items WHERE archived = 0`).get();
+  const needs = db.prepare(`SELECT name, compat, stock FROM items WHERE archived = 0 AND stock <= reorder_level ORDER BY stock, name LIMIT 5`).all();
+  const c = closingRow(day);
+  const label = new Date(day + 'T00:00:00Z').toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
+  const lines = [`${SHOP.name} · ${label}`, ''];
+  if (!d.receipts && !d.refunds) lines.push('No sales today.');
+  else {
+    lines.push(`Sales ${php(d.net)} from ${d.receipts} receipt${d.receipts === 1 ? '' : 's'}`);
+    lines.push(`Profit ${php(d.profit)}${d.net ? ` (${Math.round((d.profit / d.net) * 100)}%)` : ''}`);
+    if (d.refunds) lines.push(`Refunds ${php(d.refunds)} (${d.return_count})`);
+    if (d.voids.count) lines.push(`Voided ${d.voids.count} receipt${d.voids.count === 1 ? '' : 's'} (${php(d.voids.total)})`);
+    lines.push('', d.payments.map(p => `${p.payment.replace(/ \(.*\)/, '')} ${php(p.net)}`).join(' · '));
+    if (d.top.length) lines.push('', 'Best sellers: ' + d.top.slice(0, 3).map(t => `${t.name} ×${t.qty}`).join(', '));
+  }
+  lines.push('');
+  if (c) {
+    const diff = Math.round((c.counted_cash - c.expected_cash) * 100) / 100;
+    lines.push(`Drawer closed: ${diff === 0 ? 'exact' : diff > 0 ? `over ${php(diff)}` : `SHORT ${php(-diff)}`}${c.note ? ` (${c.note})` : ''}`);
+  } else lines.push(d.receipts ? 'Drawer not closed yet.' : '');
+  if (stockLine.out_n || stockLine.low_n) {
+    lines.push(`Restock: ${stockLine.out_n || 0} out of stock, ${stockLine.low_n || 0} running low`);
+    for (const n of needs) lines.push(`  • ${n.name}${n.compat && n.compat !== 'UNIVERSAL' ? ` (${n.compat})` : ''}: ${n.stock} left`);
+  }
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+async function sendTelegram(text) {
+  if (!CHANNEL_READY) throw new HttpError(400, 'Telegram is not set up. Add TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID on the server.');
+  let res;
+  try {
+    res = await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: process.env.TELEGRAM_CHAT_ID, text }), signal: AbortSignal.timeout(15000) });
+  } catch { throw new HttpError(503, "Couldn't reach Telegram. Try again in a minute."); }
+  if (!res.ok) throw new HttpError(502, `Telegram refused the message (${res.status}). Check the bot token and chat id.`);
+}
+
+const summarySettings = () => ({ on: getSetting('summary_on', '0') === '1', time: getSetting('summary_time', '21:00'),
+  channel: CHANNEL_READY, lastSent: getSetting('summary_last_sent') || null, error: getSetting('summary_error') || null });
+route('GET', '/api/summary', ({ user, query }) => {
+  requireAdmin(user);
+  const day = DAY.test(query.day || '') ? query.day : today();
+  return { day, text: buildSummary(day), settings: summarySettings() };
+});
+route('PUT', '/api/summary/settings', ({ user, body }) => {
+  requireAdmin(user);
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(body.time || ''))) bad('Pick a time');
+  if (body.on && !CHANNEL_READY) bad('Set up Telegram on the server first (TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID).');
+  setSetting('summary_on', body.on ? '1' : '0');
+  setSetting('summary_time', body.time);
+  return summarySettings();
+});
+route('POST', '/api/summary/send', async ({ user }) => {
+  requireAdmin(user);
+  await sendTelegram(buildSummary(today()));
+  return { ok: true };
+});
+// once a day, at or after the chosen time (Manila), if it hasn't gone out yet
+async function summaryTick() {
+  if (getSetting('summary_on', '0') !== '1' || !CHANNEL_READY) return;
+  const day = today();
+  if (getSetting('summary_sent_day') === day || nowManila() < getSetting('summary_time', '21:00')) return;
+  setSetting('summary_sent_day', day);   // claim the day first, so a slow send can't go out twice
+  try {
+    await sendTelegram(buildSummary(day));
+    setSetting('summary_last_sent', new Date().toISOString()); setSetting('summary_error', '');
+  } catch (e) { setSetting('summary_error', e.message); }   // not retried every minute; use "Send a test" once it's fixed
+}
+setInterval(summaryTick, 60000).unref();
 
 // ---------------------------------------------------------------- server
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
