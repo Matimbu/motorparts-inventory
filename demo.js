@@ -200,19 +200,21 @@ function seedDemoHistory(db, { days = 60, seed = 7, hashPassword, now = Date.now
         }
       }
 
-      const sales = Math.max(1, Math.round((weekday === 0 || weekday === 6 ? 8 : 5) + (day / days) * 3 + (rng.next() - 0.5) * 5));
+      // the most recent week is a good one: steadier, busier days, not a lucky spike
+      const goodWeek = day > days - 7;
+      const sales = Math.max(1, Math.round((weekday === 0 || weekday === 6 ? 8 : 5) + (day / days) * 3 + (rng.next() - 0.5) * 5 + (goodWeek ? 3 : 0)));
       const times = Array.from({ length: sales }, () => base + (9 + rng.next() * (lastHour - 9)) * 3600000).sort((a, b) => a - b);
       let receiptNo = 0;
       for (const t of times) {
         const sellable = items.filter(i => i.srp > 0 && stock.get(i.id) > 0);
         if (!sellable.length) break;
         const lines = [];
-        const count = rng.weighted([[1, 60], [2, 30], [3, 10]]);
+        const count = goodWeek ? rng.weighted([[1, 46], [2, 37], [3, 17]]) : rng.weighted([[1, 60], [2, 30], [3, 10]]);
         for (let k = 0; k < count; k++) {
           const it = rng.weighted(sellable.map(i => [i, 1 / Math.sqrt(i.srp)]));
           if (lines.some(l => l.it === it)) continue;
           const qty = Math.min(stock.get(it.id), it.srp < 100 ? rng.int(1, 4) : 1);
-          const price = rng.next() < 0.12 ? round5(it.srp * 0.93) : it.srp;
+          const price = rng.next() < (goodWeek ? 0.05 : 0.12) ? round5(it.srp * 0.93) : it.srp;
           lines.push({ it, qty, price });
         }
         if (!lines.length) continue;
